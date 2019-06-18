@@ -1,5 +1,5 @@
 // plugins {
-//   id "com.github.spotbugs" version "1.5"
+//   id "com.github.spotbugs" version "1.6.5"
 // }
 
 apply from: "$rootDir/gradle/checkstyle.gradle"
@@ -64,7 +64,7 @@ task sourcesJar(type: Jar) {
 }
 
 artifacts {
-  archives jar, javadocJar, sourcesJar
+  archives javadocJar, sourcesJar
 }
 
 uploadArchives {

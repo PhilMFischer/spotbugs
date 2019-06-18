@@ -33,7 +33,10 @@ import javax.annotation.Nonnull;
 import javax.annotation.WillClose;
 
 import org.dom4j.DocumentException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import edu.umd.cs.findbugs.annotations.Nullable;
 import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.ClassNotFoundExceptionParser;
 import edu.umd.cs.findbugs.ba.MethodUnprofitableException;
@@ -48,22 +51,21 @@ import edu.umd.cs.findbugs.util.Values;
  * BugReporter objects.
  */
 public abstract class AbstractBugReporter implements BugReporter {
-    private static final boolean DEBUG = SystemProperties.getBoolean("abreporter.debug");
-
-    private static final boolean DEBUG_MISSING_CLASSES = SystemProperties.getBoolean("findbugs.debug.missingclasses");
+    private static final Logger LOG = LoggerFactory.getLogger(AbstractBugReporter.class);
 
     public static class Error {
         private final int sequence;
 
         private final String message;
 
+        @Nullable
         private final Throwable cause;
 
         public Error(int sequence, String message) {
             this(sequence, message, null);
         }
 
-        public Error(int sequence, String message, Throwable cause) {
+        public Error(int sequence, String message, @Nullable Throwable cause) {
             this.sequence = sequence;
             this.message = message;
             this.cause = cause;
@@ -77,6 +79,7 @@ public abstract class AbstractBugReporter implements BugReporter {
             return message;
         }
 
+        @CheckForNull
         public Throwable getCause() {
             return cause;
         }
@@ -181,9 +184,7 @@ public abstract class AbstractBugReporter implements BugReporter {
 
         ClassAnnotation primaryClass = bugInstance.getPrimaryClass();
         if (primaryClass != null && !AnalysisContext.currentAnalysisContext().isApplicationClass(primaryClass.getClassName())) {
-            if (DEBUG) {
-                System.out.println("AbstractBugReporter: Filtering due to non-primary class");
-            }
+            LOG.debug("AbstractBugReporter: Filtering due to non-primary class");
             return;
         }
         int priority = bugInstance.getPriority();
@@ -191,13 +192,11 @@ public abstract class AbstractBugReporter implements BugReporter {
         if (priority <= priorityThreshold && bugRank <= rankThreshold) {
             doReportBug(bugInstance);
         } else {
-            if (DEBUG) {
-                if (priority <= priorityThreshold) {
-                    System.out.println("AbstractBugReporter: Filtering due to priorityThreshold " + priority + " > "
-                            + priorityThreshold);
-                } else {
-                    System.out.println("AbstractBugReporter: Filtering due to rankThreshold " + bugRank + " > " + rankThreshold);
-                }
+            if (priority <= priorityThreshold) {
+                LOG.debug("AbstractBugReporter: Filtering due to priorityThreshold {} > {}", priority,
+                        priorityThreshold);
+            } else {
+                LOG.debug("AbstractBugReporter: Filtering due to rankThreshold {} > {}", bugRank, rankThreshold);
             }
         }
     }
@@ -225,10 +224,7 @@ public abstract class AbstractBugReporter implements BugReporter {
 
     @Override
     public void reportMissingClass(ClassNotFoundException ex) {
-        if (DEBUG_MISSING_CLASSES) {
-            System.out.println("Missing class: " + ex.toString());
-            ex.printStackTrace(System.out);
-        }
+        LOG.debug("Missing class", ex);
 
         if (verbosityLevel == SILENT) {
             return;
@@ -277,10 +273,7 @@ public abstract class AbstractBugReporter implements BugReporter {
      */
     @Override
     public void reportMissingClass(ClassDescriptor classDescriptor) {
-        if (DEBUG_MISSING_CLASSES) {
-            System.out.println("Missing class: " + classDescriptor);
-            new Throwable().printStackTrace(System.out);
-        }
+        LOG.debug("Missing class: {}", classDescriptor, new ClassNotFoundException());
 
         if (verbosityLevel == SILENT) {
             return;

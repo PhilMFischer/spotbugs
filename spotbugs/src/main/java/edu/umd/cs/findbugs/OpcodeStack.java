@@ -33,6 +33,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
@@ -80,7 +83,6 @@ import edu.umd.cs.findbugs.internalAnnotations.StaticConstant;
 import edu.umd.cs.findbugs.util.ClassName;
 import edu.umd.cs.findbugs.util.Util;
 import edu.umd.cs.findbugs.util.Values;
-import edu.umd.cs.findbugs.visitclass.Constants2;
 import edu.umd.cs.findbugs.visitclass.DismantleBytecode;
 import edu.umd.cs.findbugs.visitclass.LVTHelper;
 import edu.umd.cs.findbugs.visitclass.PreorderVisitor;
@@ -104,7 +106,7 @@ import edu.umd.cs.findbugs.visitclass.PreorderVisitor;
  * <li>wide</li>
  * </ul>
  */
-public class OpcodeStack implements Constants2 {
+public class OpcodeStack {
 
     /** You can put this annotation on a OpcodeStack detector
      * to indicate that it uses {@link OpcodeStack.Item#userValue},
@@ -274,32 +276,10 @@ public class OpcodeStack implements Constants2 {
         public static final @SpecialKind
         int TYPE_ONLY = 24;
 
-        /**
-         * @deprecated will be deleted at v4 release. use {@link #getSpecialKindName(int)} instead.
-         */
-        @Deprecated
-        @StaticConstant
-        public static final HashMap<Integer, String> specialKindNames = new HashMap<>();
+        @edu.umd.cs.findbugs.internalAnnotations.StaticConstant
+        private static final ConcurrentMap<Integer, String> specialKindToName = new ConcurrentHashMap<>();
 
-        private static @SpecialKind int nextSpecialKind = asSpecialKind(TYPE_ONLY + 1);
-
-        /**
-         * Define new SpecialKind with given name, and return its {@code int} value
-         * @param name
-         *      the name of new SpecialKind, can be null
-         * @return
-         *      {@code int} value which expresses new SpecialKind
-         * @see <a href="https://github.com/spotbugs/spotbugs/pull/23">Known bug</a>
-         * @deprecated use {@link #defineSpecialKind(String)} instead.
-         */
-        @Deprecated
-        public static @SpecialKind
-        int defineNewSpecialKind(String name) {
-            specialKindNames.put(nextSpecialKind, name);
-            @SpecialKind int result = asSpecialKind( nextSpecialKind+1);
-            nextSpecialKind = result;
-            return result;
-        }
+        private static AtomicInteger nextSpecialKind = new AtomicInteger(TYPE_ONLY + 1);
 
         private static final int IS_INITIAL_PARAMETER_FLAG = 1;
 
@@ -478,7 +458,7 @@ public class OpcodeStack implements Constants2 {
                 break;
             default:
                 buf.append(", #" + specialKind);
-                buf.append("(" + specialKindNames.get(specialKind) + ")");
+                buf.append("(" + specialKindToName.get(specialKind) + ")");
                 break;
 
             }
@@ -635,20 +615,42 @@ public class OpcodeStack implements Constants2 {
             this.signature = signature;
             if (constValue instanceof Number) {
                 Number constantNumericValue = (Number) constValue;
-                if ("B".equals(signature)) {
+                switch (signature) {
+                case "Z":
+                case "Ljava/lang/Boolean;":
+                    this.constValue = constantNumericValue.intValue() != 0;
+                    break;
+                case "B":
+                case "Ljava/lang/Byte;":
                     this.constValue = constantNumericValue.byteValue();
-                } else if ("S".equals(signature)) {
+                    break;
+                case "S":
+                case "Ljava/lang/Short;":
                     this.constValue = constantNumericValue.shortValue();
-                } else if ("C".equals(signature)) {
+                    break;
+                case "C":
+                case "Ljava/lang/Character;":
                     this.constValue = (char) constantNumericValue.intValue();
-                } else if ("I".equals(signature)) {
+                    break;
+                case "I":
+                case "Ljava/lang/Integer;":
                     this.constValue = constantNumericValue.intValue();
-                } else if ("D".equals(signature)) {
+                    break;
+                case "J":
+                case "Ljava/lang/Long;":
+                    this.constValue = constantNumericValue.longValue();
+                    break;
+                case "D":
+                case "Ljava/lang/Double;":
                     this.constValue = constantNumericValue.doubleValue();
-                } else if ("F".equals(signature)) {
+                    break;
+                case "F":
+                case "Ljava/lang/Float;":
                     this.constValue = constantNumericValue.floatValue();
+                    break;
+                default:
+                    break;
                 }
-
             }
             char s = signature.charAt(0);
             if (s != 'L' && s != '[') {
@@ -1097,7 +1099,10 @@ public class OpcodeStack implements Constants2 {
          */
         public static @SpecialKind
         int defineSpecialKind(String name) {
-            return defineNewSpecialKind(name) - 1;
+            @SpecialKind
+            int specialKind = nextSpecialKind.getAndIncrement();
+            specialKindToName.put(Integer.valueOf(specialKind), name);
+            return specialKind;
         }
 
         /**
@@ -1106,7 +1111,7 @@ public class OpcodeStack implements Constants2 {
          * @since 3.1.0
          */
         public static Optional<String> getSpecialKindName(@SpecialKind int specialKind) {
-            return Optional.ofNullable(specialKindNames.get(Integer.valueOf(specialKind)));
+            return Optional.ofNullable(specialKindToName.get(Integer.valueOf(specialKind)));
         }
     }
 
@@ -1288,7 +1293,7 @@ public class OpcodeStack implements Constants2 {
         Item it, it2;
         Constant cons;
 
-        // System.out.printf("%3d %12s%s%n", dbc.getPC(), OPCODE_NAMES[seen],
+        // System.out.printf("%3d %12s%s%n", dbc.getPC(), Const.getOpcodeName(seen),
         // this);
         if (dbc.isRegisterStore()) {
             setLastUpdate(dbc.getRegisterOperand(), dbc.getPC());
@@ -1489,7 +1494,7 @@ public class OpcodeStack implements Constants2 {
                     Item topItem = pop();
 
                     // System.out.printf("%4d %10s %s%n",
-                    // dbc.getPC(),OPCODE_NAMES[seen], topItem);
+                    // dbc.getPC(),Const.getOpcodeName(seen), topItem);
                     if (seen == Const.IFLT || seen == Const.IFLE) {
                         registerTestedFoundToBeNonnegative = topItem.registerNumber;
                     }
@@ -2748,6 +2753,18 @@ public class OpcodeStack implements Constants2 {
             push(i);
         }
 
+        if (seen == Const.INVOKESTATIC && topItem != null && topItem.isInitialParameter()
+                && isMethodThatReturnsGivenReference(clsName, methodName)) {
+            assert getStackDepth() > 0;
+            assert !getStackItem(0).isInitialParameter();
+            // keep returned StackItem as initial parameter
+            getStackItem(0).setInitialParameter(true);
+        }
+    }
+
+    private boolean isMethodThatReturnsGivenReference(String clsName, String methodName) {
+        return "java/util/Objects".equals(clsName) && "requireNonNull".equals(methodName)
+                || "com/google/common/base/Preconditions".equals(clsName) && "checkNotNull".equals(methodName);
     }
 
     private void processInvokeDynamic(DismantleBytecode dbc) {

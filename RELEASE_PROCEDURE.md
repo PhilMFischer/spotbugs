@@ -4,8 +4,8 @@ When you release fixed version of SpotBugs, please follow these procedures.
 
 ## Update version info
 
-* `version` in `build.gradle` and `gradlePlugin/build.gradle`
-* version number in `CHANGELOG.md` and `gradlePlugin/CHANGELOG.md`
+* `version` in `build.gradle`
+* version number in `CHANGELOG.md`
 * `version`, `full_version`, `maven_plugin_version` and `gradle_plugin_version` in `docs/conf.py`
 
 ## Release to Maven Central
@@ -25,8 +25,7 @@ See `deploy` phase in `.travis.yml` for detail.
 
 ## Release to Eclipse Marketplace
 
-No action necessary. Just push latest plugin to Eclipse Update Site then it's enough.
-If you need to update [entry at Eclipse Marketplace](https://marketplace.eclipse.org/content/spotbugs-eclipse-plugin), please contact with @KengoTODA or @iloveeclipse.
+Update version in [Eclipse Marketplace page](https://marketplace.eclipse.org/content/spotbugs-eclipse-plugin). If you have no permission, please contact with @KengoTODA or @iloveeclipse.
 
 ## Release to Gradle Plugin Portal
 

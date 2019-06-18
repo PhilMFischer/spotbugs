@@ -54,6 +54,8 @@ import java.util.jar.Manifest;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.XMLReader;
@@ -64,6 +66,7 @@ import edu.umd.cs.findbugs.ba.URLClassPath;
 import edu.umd.cs.findbugs.charsets.UTF8;
 import edu.umd.cs.findbugs.config.UserPreferences;
 import edu.umd.cs.findbugs.filter.Filter;
+import edu.umd.cs.findbugs.io.IO;
 import edu.umd.cs.findbugs.util.Util;
 import edu.umd.cs.findbugs.xml.OutputStreamXMLOutput;
 import edu.umd.cs.findbugs.xml.XMLAttributeList;
@@ -83,8 +86,8 @@ import edu.umd.cs.findbugs.xml.XMLWriteable;
  *
  * @author David Hovemeyer
  */
-public class Project implements XMLWriteable {
-    private static final boolean DEBUG = SystemProperties.getBoolean("findbugs.project.debug");
+public class Project implements XMLWriteable, AutoCloseable {
+    private static final Logger LOG = LoggerFactory.getLogger(Project.class);
 
     private final List<File> currentWorkingDirectoryList;
 
@@ -273,7 +276,7 @@ public class Project implements XMLWriteable {
                 isNew = addToListInternal(srcDirList, dir) || isNew;
             }
         }
-
+        IO.close(sourceFinder);
         sourceFinder = new SourceFinder(this);
         return isNew;
     }
@@ -359,6 +362,7 @@ public class Project implements XMLWriteable {
      */
     public void removeSourceDir(int num) {
         srcDirList.remove(num);
+        IO.close(sourceFinder);
         sourceFinder = new SourceFinder(this);
         isModified = true;
     }
@@ -453,6 +457,7 @@ public class Project implements XMLWriteable {
      * Worklist for finding implicit classpath entries.
      */
     private static class WorkList {
+        private static final Logger LOG = LoggerFactory.getLogger(WorkList.class);
         private final LinkedList<WorkListItem> itemList;
 
         private final HashSet<String> addedSet;
@@ -493,13 +498,9 @@ public class Project implements XMLWriteable {
          *         examined already)
          */
         public boolean add(WorkListItem item) {
-            if (DEBUG) {
-                System.out.println("Adding " + item.getURL().toString());
-            }
+            LOG.debug("Adding {}", item.getURL());
             if (!addedSet.add(item.getURL().toString())) {
-                if (DEBUG) {
-                    System.out.println("\t==> Already processed");
-                }
+                LOG.debug("\t==> Already processed");
                 return false;
             }
 
@@ -571,10 +572,7 @@ public class Project implements XMLWriteable {
      *            list of implicit classpath entries found
      */
     private void processComponentJar(URL jarFileURL, WorkList workList, List<String> implicitClasspath) {
-
-        if (DEBUG) {
-            System.out.println("Processing " + jarFileURL.toString());
-        }
+        LOG.debug("Processing {}", jarFileURL);
 
         if (!jarFileURL.toString().endsWith(".zip") && !jarFileURL.toString().endsWith(".jar")) {
             return;
@@ -582,30 +580,22 @@ public class Project implements XMLWriteable {
 
         try {
             URL manifestURL = new URL("jar:" + jarFileURL.toString() + "!/META-INF/MANIFEST.MF");
-
-            InputStream in = null;
-            try {
-                in = manifestURL.openStream();
+    
+            try (InputStream in = manifestURL.openStream()) {
                 Manifest manifest = new Manifest(in);
-
+        
                 Attributes mainAttrs = manifest.getMainAttributes();
                 String classPath = mainAttrs.getValue("Class-Path");
                 if (classPath != null) {
                     String[] fileList = classPath.split("\\s+");
-
+            
                     for (String jarFile : fileList) {
                         URL referencedURL = workList.createRelativeURL(jarFileURL, jarFile);
                         if (workList.add(new WorkListItem(referencedURL))) {
                             implicitClasspath.add(referencedURL.toString());
-                            if (DEBUG) {
-                                System.out.println("Implicit jar: " + referencedURL.toString());
-                            }
+                            LOG.debug("Implicit jar: {}", referencedURL);
                         }
                     }
-                }
-            } finally {
-                if (in != null) {
-                    in.close();
                 }
             }
         } catch (IOException ignore) {
@@ -640,8 +630,7 @@ public class Project implements XMLWriteable {
      */
     @Deprecated
     public void write(String outputFile, boolean useRelativePaths, String relativeBase) throws IOException {
-        PrintWriter writer = UTF8.printWriter(outputFile);
-        try {
+        try (PrintWriter writer = UTF8.printWriter(outputFile)) {
             writer.println(JAR_FILES_KEY);
             for (String jarFile : analysisTargets) {
                 if (useRelativePaths) {
@@ -649,7 +638,7 @@ public class Project implements XMLWriteable {
                 }
                 writer.println(jarFile);
             }
-
+        
             writer.println(SRC_DIRS_KEY);
             for (String srcDir : srcDirList) {
                 if (useRelativePaths) {
@@ -657,7 +646,7 @@ public class Project implements XMLWriteable {
                 }
                 writer.println(srcDir);
             }
-
+        
             writer.println(AUX_CLASSPATH_ENTRIES_KEY);
             for (String auxClasspathEntry : auxClasspathEntryList) {
                 if (useRelativePaths) {
@@ -665,23 +654,22 @@ public class Project implements XMLWriteable {
                 }
                 writer.println(auxClasspathEntry);
             }
-
+        
             if (useRelativePaths) {
                 writer.println(OPTIONS_KEY);
                 writer.println(RELATIVE_PATHS + "=true");
             }
-        } finally {
-            writer.close();
         }
 
         // Project successfully saved
         isModified = false;
     }
 
-    public static Project readXML(File f) throws IOException,  SAXException {
-        InputStream in = new BufferedInputStream(new FileInputStream(f));
+    public static Project readXML(File f) throws IOException, SAXException {
+        @SuppressWarnings("resource") // will be closed by caller
         Project project = new Project();
-        try {
+
+        try (InputStream in = new BufferedInputStream(new FileInputStream(f))) {
             String tag = Util.getXMLType(in);
             SAXBugCollectionHandler handler;
             if ("Project".equals(tag)) {
@@ -698,11 +686,12 @@ public class Project implements XMLWriteable {
             xr.setContentHandler(handler);
             xr.setErrorHandler(handler);
 
-            Reader reader = Util.getReader(in);
-
-            xr.parse(new InputSource(reader));
-        } finally {
-            in.close();
+            try (Reader reader = Util.getReader(in)) {
+                xr.parse(new InputSource(reader));
+            }
+        } catch (IOException | SAXException e) {
+            project.close();
+            throw e;
         }
 
         // Presumably, project is now up-to-date
@@ -1121,5 +1110,10 @@ public class Project implements XMLWriteable {
 
         }
         return result;
+    }
+
+    @Override
+    public void close() {
+        IO.close(sourceFinder);
     }
 }
